@@ -21,7 +21,9 @@ import json
 import sqlite3
 import sys
 import tempfile
+import os
 import unittest
+os.environ.setdefault("ALLOW_LEGION_ACTIVE", "1")
 from pathlib import Path
 from typing import Any, Callable
 
@@ -109,17 +111,17 @@ def install_fake_github(test: "E2E", fake: FakeGitHub) -> None:
     def issue_state_sha(repo: str, number: int) -> str:
         return fake.state_sha(repo, number)
 
-    def add_label(repo: str, number: int, label: str) -> None:
+    def add_label(repo: str, number: int, label: str, *, timeout: Any = None) -> None:
         labels = fake.labels(repo, number)
         if label not in labels:
             labels.append(label)
         fake.set_labels(repo, number, labels)
 
-    def remove_label(repo: str, number: int, label: str) -> None:
+    def remove_label(repo: str, number: int, label: str, *, timeout: Any = None) -> None:
         labels = [l for l in fake.labels(repo, number) if l != label]
         fake.set_labels(repo, number, labels)
 
-    def post_comment(repo: str, number: int, body: str) -> str:
+    def post_comment(repo: str, number: int, body: str, *, timeout: Any = None) -> str:
         fake.comments.setdefault((repo, number), []).append({"body": body})
         return body[:200]
 
@@ -133,6 +135,7 @@ def install_fake_github(test: "E2E", fake: FakeGitHub) -> None:
     test._patch("remove_label", remove_label)
     test._patch("post_comment", post_comment)
     test._patch("gh_authenticated", gh_authenticated)
+    test._patch("list_issue_comments", lambda repo, number, **kw: list(fake.comments.get((repo, number), [])))
 
 
 def make_policy(tmp: Path) -> Path:
@@ -149,7 +152,10 @@ poll_limit = 25
 publish_retry_max = 3
 allow_frontier = false
 worker_unique = true
-health_host = "127.0.0.1"
+# === ECHELON: enable ACTIVE for the test (gated by env var) ===
+mode = "ACTIVE"
+distributed_claim_protocol_proven = true
+key_path = "{tmp / 'worker.key'}"
 health_port = 0
 workdir_root = "{tmp / 'work'}"
 state_root = "{tmp / 'state'}"
@@ -265,7 +271,8 @@ class E2E(unittest.TestCase):
 
             workdir = tmp / "work" / "vonstegen__legion-bridge-test__n1"
             receipt = json.loads((workdir / "receipt.json").read_text())
-            secret = SecretFile(Path.home() / ".config" / "legion-bridge" / "worker.key").read()
+            # === ECHELON: per-worker key path ===
+            secret = SecretFile(tmp / "worker.key").read()
             payload = {k: v for k, v in receipt.items() if k != "signature"}
             self.assertTrue(verify(secret, canonical_json(payload).encode("utf-8"), receipt["signature"]))
             self.assertEqual(receipt["harness_resolved"], "local")

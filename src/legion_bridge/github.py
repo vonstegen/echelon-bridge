@@ -29,16 +29,27 @@ class Issue:
     html_url: str
 
 
-def _gh(*args: str, check: bool = True) -> subprocess.CompletedProcess[str]:
-    env = os.environ.copy()
-    env["GH_NO_UPDATE_NOTIFIER"] = "1"
-    env["GH_PROMPT_DISABLED"] = "1"
+def _gh(*args: str, check: bool = True, timeout: float | None = None) -> subprocess.CompletedProcess[str]:
+    env = {
+        "PATH": os.environ.get("PATH", ""),
+        "HOME": os.environ.get("HOME", ""),
+        "LANG": os.environ.get("LANG", "C.UTF-8"),
+        "LC_ALL": os.environ.get("LC_ALL", "C.UTF-8"),
+        "GH_NO_UPDATE_NOTIFIER": "1",
+        "GH_PROMPT_DISABLED": "1",
+    }
+    # Honor explicit gh_* config overrides but never leak the parent shell's
+    # other env (credentials, model API keys, etc).
+    for k in ("GH_CONFIG_DIR", "GH_TOKEN", "GITHUB_TOKEN", "GH_HOST"):
+        if k in os.environ:
+            env[k] = os.environ[k]
     res = subprocess.run(
         ["gh", *args],
         capture_output=True,
         text=True,
         env=env,
         check=False,
+        timeout=30 if timeout is None else timeout,
     )
     if check and res.returncode != 0:
         redacted_stderr, _ = redact_secrets(res.stderr)
@@ -134,15 +145,35 @@ def issue_state_sha(repo: str, number: int) -> str:
     return ",".join(sorted(issue.labels))
 
 
-def add_label(repo: str, number: int, label: str) -> None:
-    _gh("issue", "edit", str(number), "--repo", repo, "--add-label", label)
+def list_issue_comments(repo: str, number: int, *, timeout=None) -> list[dict]:
+    """Read every page; an unreadable history is not an empty history."""
+    res = _gh("api", f"repos/{repo}/issues/{number}/comments", "--paginate",
+              "--slurp", timeout=timeout)
+    pages = json.loads(res.stdout)
+    return [comment for page in pages for comment in page]
 
 
-def remove_label(repo: str, number: int, label: str) -> None:
-    _gh("issue", "edit", str(number), "--repo", repo, "--remove-label", label)
+def find_receipt_comment(repo: str, number: int, signature: str) -> str | None:
+    """If a comment with `## legion-bridge receipt` and the given signature
+    already exists on the issue, return its id; otherwise return None."""
+    target = f"signature: `{signature}`"
+    for c in list_issue_comments(repo, number):
+        body = str(c.get("body") or "")
+        if "## legion-bridge receipt" in body and target in body:
+            return str(c.get("id"))
+    return None
 
 
-def post_comment(repo: str, number: int, body: str) -> str:
+
+def add_label(repo: str, number: int, label: str, *, timeout: float | None = None) -> None:
+    _gh("issue", "edit", str(number), "--repo", repo, "--add-label", label, timeout=timeout)
+
+
+def remove_label(repo: str, number: int, label: str, *, timeout: float | None = None) -> None:
+    _gh("issue", "edit", str(number), "--repo", repo, "--remove-label", label, timeout=timeout)
+
+
+def post_comment(repo: str, number: int, body: str, *, timeout: float | None = None) -> str:
     redacted, _ = redact_secrets(body)
     res = _gh(
         "issue",
@@ -153,10 +184,10 @@ def post_comment(repo: str, number: int, body: str) -> str:
         "--body",
         redacted,
         check=False,
+        timeout=30 if timeout is None else timeout,
     )
     if res.returncode != 0:
         raise GhError(f"comment failed rc={res.returncode}")
-    # Return the comment's URL via the issue view.
     return redacted[:200]
 
 
@@ -172,7 +203,7 @@ def user_in_team(user: str, org: str, team: str) -> bool | None:
             data = json.loads(res.stdout)
         except json.JSONDecodeError:
             return None
-        return bool(data.get("active"))
+        return data.get("state") == "active"
     if res.returncode in (404, 403):
         return None
     return None
@@ -217,8 +248,15 @@ def front_matter_safety_check(fm: dict[str, Any]) -> list[str]:
             r = 0
         if r > 1800:
             errors.append("max_runtime_s exceeds 1800s cap")
-    if "harness" in fm and fm["harness"] not in ("omp", "hermes", "local"):
-        errors.append(f"unsupported harness: {fm['harness']!r}")
+    # Front-matter may request any harness name; the policy table
+    # is the authoritative allowlist. The safety check here is
+    # only that the value is a non-empty identifier string.
+    if "harness" in fm and not isinstance(fm["harness"], str):
+        errors.append("harness must be a string")
+    elif "harness" in fm and not fm["harness"].strip():
+        errors.append("harness must be non-empty")
+    elif "harness" in fm and not all(c.isalnum() or c in "-_." for c in fm["harness"]):
+        errors.append(f"unsupported harness identifier: {fm['harness']!r}")
     return errors
 
 
