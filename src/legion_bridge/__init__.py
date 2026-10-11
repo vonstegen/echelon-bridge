@@ -1,0 +1,22 @@
+"""LEGION bridge: independent GitHub work-order bridge."""
+from legion_bridge.core import (  # noqa: F401
+    SCHEMA_VERSION,
+    INTAKE_LABEL,
+    CLAIMED_LABEL,
+    RUNNING_LABEL,
+    TERMINAL_LABELS,
+    AuditLog,
+    ClaimStore,
+    HarnessPolicy,
+    Policy,
+    SecretFile,
+    WorkerIdentity,
+    canonical_json,
+    load_policy,
+    redact_secrets,
+    sha256_hex,
+    sign,
+    utcnow_epoch,
+    utcnow_iso,
+    verify,
+)

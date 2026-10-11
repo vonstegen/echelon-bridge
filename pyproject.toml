@@ -1,0 +1,19 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "legion-bridge"
+version = "0.1.0"
+description = "Independent GitHub work-order bridge for LEGION"
+requires-python = ">=3.11"
+dependencies = [
+  "PyYAML>=6.0",
+  "requests>=2.31",
+]
+
+[project.scripts]
+legion-bridge = "legion_bridge.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]

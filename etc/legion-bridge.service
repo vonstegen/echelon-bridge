@@ -1,0 +1,27 @@
+[Unit]
+Description=LEGION bridge listener (independent work-order bridge)
+Documentation=file:///home/andrew-jochl/Developer/legion-bridge/README.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/home/andrew-jochl/Developer/legion-bridge
+Environment="PYTHONUNBUFFERED=1"
+ExecStart=/home/andrew-jochl/Developer/legion-bridge/.venv/bin/python -m legion_bridge.cli loop --policy /home/andrew-jochl/.config/legion-bridge/policy.toml
+Restart=on-failure
+RestartSec=10
+StartLimitIntervalSec=60
+StartLimitBurst=5
+TimeoutStopSec=15
+StandardOutput=journal
+StandardError=journal
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/home/andrew-jochl/.local/share/legion-bridge
+ReadOnlyPaths=/home/andrew-jochl/.config/legion-bridge
+
+[Install]
+WantedBy=default.target

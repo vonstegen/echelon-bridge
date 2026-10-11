@@ -1,0 +1,19 @@
+# Bridge source layout — do not commit secrets, runs, or venvs.
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+*.egg-info/
+build/
+dist/
+
+# State and runtime artifacts (per-worker; never committed).
+# .config/echelon-bridge/worker.key
+# .config/echelon-bridge/operator.env
+# .config/echelon-bridge/policy.toml (allowed; tracked)
+# .local/share/echelon-bridge/state/claims.sqlite*
+# .local/share/echelon-bridge/audit.jsonl
+# .local/share/echelon-bridge/runs/*  (per-order artifacts)
+# .local/share/echelon-bridge/work/*  (transient workdirs)
+
+# Synthetic test data may live in tests/fixtures/; never real data.

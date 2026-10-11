@@ -1,0 +1,63 @@
+# LEGION bridge policy template.
+# Copy to ~/.config/legion-bridge/policy.toml and edit.
+
+[worker]
+id = "LEGION"
+type = "engineering"
+
+allowed_repos = ["vonstegen/legion-bridge-test"]
+
+# Lease semantics: claim TTL = 2 * heartbeat_interval_s.
+lease_ttl_s = 600
+heartbeat_interval_s = 60
+poll_interval_s = 30
+poll_limit = 25
+publish_retry_max = 3
+
+# Frontier providers are off by default on LEGION.
+allow_frontier = false
+
+# Cross-machine worker_id sharing is off by default.
+worker_unique = true
+
+# Health endpoint binds loopback only. Set health_port = 0 to disable.
+health_host = "127.0.0.1"
+health_port = 0
+
+# Optional: GitHub team whose members may issue work orders.
+# operator_team = "legion-bridge-ops"
+
+# Workspace roots. Per-order workdirs are created under workdir_root.
+workdir_root = "~/.local/share/legion-bridge/work"
+state_root = "~/.local/share/legion-bridge/state"
+
+# Harness policies. Each is detected at startup via `command -v <binary>`.
+# `isolation = "bwrap"` runs the harness in a bubblewrap sandbox.
+# `isolation = "none"` runs without isolation; allowed only for trusted harnesses.
+
+[[harness.omp]]
+binary = "omp"
+argv_template = ["--version"]
+isolation = "none"
+env_passthrough = ["PATH", "HOME", "ANTHROPIC_API_KEY", "OPENAI_API_KEY", "COPILOT_GITHUB_TOKEN", "PI_SMOL_MODEL", "PI_SLOW_MODEL", "PI_PLAN_MODEL"]
+timeout_s = 1800
+max_cost_usd = 0.0
+harness_kind = "omp"
+
+[[harness.hermes]]
+binary = "hermes"
+argv_template = ["--version"]
+isolation = "none"
+env_passthrough = ["PATH", "HOME", "ANTHROPIC_API_KEY", "OPENAI_API_KEY", "COPILOT_GITHUB_TOKEN"]
+timeout_s = 1800
+max_cost_usd = 0.0
+harness_kind = "hermes"
+
+[[harness.local]]
+binary = "echo"
+argv_template = ["local-harness-stub"]
+isolation = "none"
+env_passthrough = []
+timeout_s = 60
+max_cost_usd = 0.0
+harness_kind = "local"

@@ -1,0 +1,106 @@
+#!/usr/bin/env python3
+"""ECHELON worker-mode helper.
+
+Usage:
+    echelon-mode show
+    echelon-mode set STANDBY|ACTIVE|MAINTENANCE
+
+Reads and edits the [worker].mode field in
+~/.config/echelon-bridge/policy.toml. Records transitions in the
+audit log.
+"""
+from __future__ import annotations
+
+import os
+import re
+import sys
+from datetime import datetime, timezone
+from pathlib import Path
+
+POLICY = Path(os.path.expanduser("~/.config/echelon-bridge/policy.toml"))
+AUDIT = Path(os.path.expanduser("~/.local/share/echelon-bridge/audit.jsonl"))
+VALID = {"STANDBY", "ACTIVE", "MAINTENANCE"}
+
+
+def _read_mode(text: str) -> str | None:
+    in_worker = False
+    for line in text.splitlines():
+        s = line.strip()
+        if s.startswith("[") and s.endswith("]"):
+            in_worker = s == "[worker]"
+            continue
+        if in_worker and s.startswith("mode"):
+            _, _, val = s.partition("=")
+            return val.strip().strip('"').upper()
+    return None
+
+
+def _write_mode(text: str, new: str) -> str:
+    out_lines: list[str] = []
+    replaced = False
+    in_worker = False
+    for line in text.splitlines():
+        s = line.strip()
+        if s.startswith("[") and s.endswith("]"):
+            in_worker = s == "[worker]"
+            out_lines.append(line)
+            continue
+        if in_worker and s.startswith("mode"):
+            out_lines.append(f'mode = "{new}"')
+            replaced = True
+        else:
+            out_lines.append(line)
+    if not replaced:
+        out_lines.append("")
+        out_lines.append("[worker]")
+        out_lines.append(f'mode = "{new}"')
+    return "\n".join(out_lines) + "\n"
+
+
+def _audit(event: str, **fields: str) -> None:
+    AUDIT.parent.mkdir(parents=True, exist_ok=True)
+    rec = {
+        "ts": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "worker_id": "ECHELON",
+        "event": event,
+    }
+    rec.update(fields)
+    with AUDIT.open("a", encoding="utf-8") as f:
+        f.write(__import__("json").dumps(rec, sort_keys=True) + "\n")
+
+
+def cmd_show() -> int:
+    if not POLICY.exists():
+        print(f"echelon-mode: policy not found: {POLICY}", file=sys.stderr)
+        return 2
+    mode = _read_mode(POLICY.read_text()) or "(unset)"
+    print(mode)
+    return 0
+
+
+def cmd_set(new: str) -> int:
+    new = new.upper()
+    if new not in VALID:
+        print(f"echelon-mode: invalid mode {new!r}; expected one of {sorted(VALID)}", file=sys.stderr)
+        return 2
+    if not POLICY.exists():
+        print(f"echelon-mode: policy not found: {POLICY}", file=sys.stderr)
+        return 2
+    text = POLICY.read_text()
+    old = _read_mode(text)
+    if old == new:
+        print(f"echelon-mode: already {new}")
+        return 0
+    POLICY.write_text(_write_mode(text, new))
+    _audit("mode_transition", from_mode=old or "(unset)", to_mode=new, operator=os.environ.get("USER", "unknown"))
+    print(f"echelon-mode: {old or '(unset)'} -> {new}")
+    return 0
+
+
+if __name__ == "__main__":
+    if len(sys.argv) < 2 or sys.argv[1] == "show":
+        sys.exit(cmd_show())
+    if sys.argv[1] == "set" and len(sys.argv) == 3:
+        sys.exit(cmd_set(sys.argv[2]))
+    print("usage: echelon-mode show | set STANDBY|ACTIVE|MAINTENANCE", file=sys.stderr)
+    sys.exit(2)
